@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -13,8 +14,8 @@ import (
 
 func main() {
 	var x nifti.Nifti1Image
-	x.LoadImage("MNI152.nii.gz", true)
-	sliceTest := x.GetSlice(40, 0)
+	x.LoadImage("MNI152_T1_2mm_brain.nii.gz", true)
+	sliceTest := x.GetSlice(24, 0)
 	// fmt.Println(len(sliceTest), len(sliceTest[0])) //start from 0
 	// fmt.Println(x.GetTimeSeries(50, 50, 50))
 	img := image.NewGray16(image.Rect(0, 0, len(sliceTest), len(sliceTest[0])))
@@ -33,5 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	fmt.Println(x.GetAt(50, 50, 50, 0))
+	x.SetAt(50, 50, 50, 0, 1.1)
+	fmt.Println(x.GetAt(50, 50, 50, 0))
 }

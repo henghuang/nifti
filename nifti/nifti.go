@@ -164,7 +164,8 @@ type Nifti1Image struct { /*!< Image storage struct **/
 	volumeN      int                       //defined by me, volume vox num
 	byte2floatF  interface{}               //defined by me, byte2floatF
 	byte2floatFc func(interface{}) float32 //defined by me, byte2floatF
-	header       Nifti1Header              //defined by me, it might be a good idea store the img header in the image structure
+	float2byteF  interface{}
+	header       Nifti1Header //defined by me, it might be a good idea store the img header in the image structure
 
 	numExt int32 /*!< number of extensions in ext_list       */
 	// nifti1_extension       *ext_list        /*!< array of extension structs (with data) */
@@ -203,39 +204,41 @@ func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 	img.nbyper = int32(header.Bitpix) / 8
 
 	// fmt.Println(header)
+	//setting function to convert float2byte or byte2float
 	if img.nbyper == 1 {
 		img.byte2floatF = func(x []byte) uint8 { return uint8(x[0]) }
 		img.byte2floatFc = func(x interface{}) float32 {
-			// return math.Float32frombits(uint32(x.(uint8)))
 			return float32(x.(uint8))
+		}
+		img.float2byteF = func(buff []byte, x float32) {
+			buff[0] = uint8(x)
 		}
 	} else if img.nbyper == 2 {
 		img.byte2floatF = binary.LittleEndian.Uint16
 		img.byte2floatFc = func(x interface{}) float32 {
-			// return 	math.Float32frombits(uint32(x.(uint16))) //wrong ! reflect refernec
 			return float32(x.(uint16))
 		}
+
+		img.float2byteF = func(buff []byte, x float32) {
+			binary.LittleEndian.PutUint16(buff, uint16(x))
+		}
+
 	} else if img.nbyper == 4 {
 		img.byte2floatF = binary.LittleEndian.Uint32
 		img.byte2floatFc = func(x interface{}) float32 {
-			// return math.Float32frombits(x.(uint32))
 			return float32(x.(uint32))
 		}
+		img.float2byteF = func(buff []byte, x float32) {
+			binary.LittleEndian.PutUint32(buff, uint32(x))
+		}
+
 	} else if img.nbyper == 8 {
 		img.byte2floatF = binary.LittleEndian.Uint64
 		img.byte2floatFc = func(x interface{}) float32 {
-			// return math.Float32frombits(x.(uint32))
-			// 	package main
-			// import (
-			// 	"fmt"
-			// 	"math"
-			// )
-			// func main() {
-			// 	var x interface{}
-			// 	x = uint32(8)
-			// 	fmt.Println(math.Float32frombits(x.(uint32)))
-			// }
 			return float32(x.(uint64))
+		}
+		img.float2byteF = func(buff []byte, x float32) {
+			binary.LittleEndian.PutUint64(buff, uint64(x))
 		}
 	} else {
 		fmt.Println("input nbyper:", img.nbyper)
@@ -276,9 +279,17 @@ func (img *Nifti1Image) GetAt(x, y, z, t int) float32 {
 	yIndex := img.nx * int32(y)
 	xIndex := int32(x)
 	index := int32(tIndex) + zIndex + yIndex + xIndex
-	// fmt.Println(len(img.data), index*img.nbyper, (index+1)*img.nbyper, x, y, z, t)
-
 	return img.byte2float(img.data[index*img.nbyper : (index+1)*img.nbyper]) //shift byte
+}
+
+func (img *Nifti1Image) SetAt(x, y, z, t int, elem float32) {
+
+	tIndex := int32(t) * img.nx * img.ny * img.nz
+	zIndex := img.nx * img.ny * int32(z)
+	yIndex := img.nx * int32(y)
+	xIndex := int32(x)
+	index := int32(tIndex) + zIndex + yIndex + xIndex
+	copy(img.data[index*img.nbyper:(index+1)*img.nbyper], img.float2byte(elem))
 }
 
 func (img *Nifti1Image) GetTimeSeries(x, y, z int) []float32 {
@@ -306,7 +317,7 @@ func (img *Nifti1Image) GetSlice(z, t int) [][]float32 {
 	return slice
 }
 
-//return [x,y,z,t]
+//Return [x,y,z,t]
 func (img *Nifti1Image) GetDims() [4]int {
 	var dim [4]int
 	for i, v := range img.dim[1:5] {
@@ -320,6 +331,13 @@ func (img *Nifti1Image) byte2float(data []byte) float32 {
 	v := reflect.ValueOf(img.byte2floatF).Call([]reflect.Value{reflect.ValueOf(data)})
 	num := img.byte2floatFc(v[0].Interface())
 	return num
+}
+
+//convert float32 to byte,init in  LoadImage
+func (img *Nifti1Image) float2byte(data float32) []byte {
+	buff := make([]byte, img.nbyper)
+	reflect.ValueOf(img.float2byteF).Call([]reflect.Value{reflect.ValueOf(buff), reflect.ValueOf(data)})
+	return buff
 }
 
 func gzipOpen(filepath string) (io.ReadCloser, error) {
