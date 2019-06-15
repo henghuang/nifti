@@ -176,9 +176,12 @@ type Nifti1Image struct { /*!< Image storage struct **/
 //header.VoxOffset, header.Bitpix,header.Dim are very important
 func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 	var header Nifti1Header
-	header.LoadHeader(filepath)
-	img.header = header
-
+	if filepath == "" {
+		header = img.header
+	} else {
+		header.LoadHeader(filepath)
+		img.header = header
+	}
 	// set dimensions of data array
 	img.ndim, img.dim[0] = int32(header.Dim[0]), int32(header.Dim[0])
 	img.nx, img.dim[1] = int32(header.Dim[1]), int32(header.Dim[1])
@@ -230,7 +233,6 @@ func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 			v := math.Float32bits(x)
 			binary.LittleEndian.PutUint32(buff, v)
 		}
-
 	} else if img.nbyper == 8 {
 		img.byte2floatF = func(b []byte) float32 {
 			v := binary.LittleEndian.Uint64(b)
@@ -244,7 +246,7 @@ func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 		fmt.Println("input nbyper:", img.nbyper)
 		panic("(img *Nifti1Image) byte2float, only support 8 16 32 and 64 bit")
 	}
-	fmt.Println(img.nbyper)
+	// fmt.Println(img.nbyper)
 	// set the grid spacings
 	img.dx, img.pixdim[1] = header.Pixdim[1], header.Pixdim[1]
 	img.dy, img.pixdim[2] = header.Pixdim[2], header.Pixdim[2]
@@ -326,17 +328,34 @@ func (img *Nifti1Image) GetDims() [4]int {
 	return dim
 }
 
-//convert byte to float32,init in  LoadImage
+//convert byte to float32,init in LoadImage
 func (img *Nifti1Image) byte2float(data []byte) float32 {
 	v := reflect.ValueOf(img.byte2floatF).Call([]reflect.Value{reflect.ValueOf(data)})[0].Interface()
 	return v.(float32)
 }
 
-//convert float32 to byte,init in  LoadImage
+//convert float32 to byte,init in LoadImage
 func (img *Nifti1Image) float2byte(data float32) []byte {
 	buff := make([]byte, img.nbyper)
 	reflect.ValueOf(img.float2byteF).Call([]reflect.Value{reflect.ValueOf(buff), reflect.ValueOf(data)})
 	return buff
+}
+
+//write nii
+func (img *Nifti1Image) Save(filename string) {
+	padding := int(img.header.VoxOffset) - 348
+	file, err := os.Create(filename + ".gz")
+	defer file.Close()
+	if err != nil {
+		panic(err)
+	}
+	gzipWriter := gzip.NewWriter(file)
+
+	binary.Write(gzipWriter, binary.LittleEndian, img.header)
+	if padding > 0 {
+		binary.Write(gzipWriter, binary.LittleEndian, make([]byte, padding)) //padding header
+	}
+	binary.Write(gzipWriter, binary.LittleEndian, img.data)
 }
 
 func gzipOpen(filepath string) (io.ReadCloser, error) {
@@ -354,3 +373,61 @@ func gzipOpen(filepath string) (io.ReadCloser, error) {
 	}
 	return f, nil
 }
+
+//create new image
+func NewImg(dimX, dimY, dimZ, dimT int) *Nifti1Image {
+
+	var img Nifti1Image
+	img.header.SizeofHdr = 348
+	img.header.Regular = 114
+	if dimT > 1 {
+		img.header.Dim[0] = 4
+	} else {
+		img.header.Dim[0] = 3
+	}
+	img.header.Dim[1] = int16(dimX)
+	img.header.Dim[2] = int16(dimY)
+	img.header.Dim[3] = int16(dimZ)
+	img.header.Bitpix = 32
+	img.header.Pixdim = [8]float32{-1, 2, 2, 2, 1, 1, 1, 1}
+	img.header.VoxOffset = 348
+	img.header.SclSlope = 1
+	img.header.XyztUnits = 10
+	img.header.CalMax = 8000
+	img.header.CalMin = 3000
+	img.header.QformCode = 4
+	img.header.SformCode = 4
+	img.header.QuaternC = 1
+	img.header.QoffsetX = 90
+	img.header.QoffsetY = -126
+	img.header.QoffsetZ = -72
+	img.header.SrowX = [4]float32{-2, 0, 0, 90}
+	img.header.SrowY = [4]float32{0, 2, 0, -126}
+	img.header.SrowZ = [4]float32{0, 0, 2, -72}
+	img.header.Magic = [4]byte{110, 43, 49, 0}
+
+	img.LoadImage("", false)
+	img.data = make([]byte, dimX*dimY*dimZ*dimT*int(img.nbyper))
+	return &img
+}
+
+// x.LoadImage("MNI152.nii.gz", true)
+// sliceTest := x.GetSlice(24, 0)
+// // fmt.Println(len(sliceTest), len(sliceTest[0])) //start from 0
+// // fmt.Println(x.GetTimeSeries(50, 50, 50))
+// img := image.NewGray16(image.Rect(0, 0, len(sliceTest), len(sliceTest[0])))
+// // fmt.Println(sliceTest)
+// for i, row := range sliceTest {
+// 	for j, col := range row {
+// 		img.SetGray16(i, j, color.Gray16{Y: uint16(col)})
+// 	}
+// }
+// f, err := os.Create("test.jpg")
+// defer f.Close()
+// if err != nil {
+// 	log.Fatal(err)
+// }
+// err = jpeg.Encode(f, img, &jpeg.Options{Quality: 100})
+// if err != nil {
+// 	log.Fatal(err)
+// }
