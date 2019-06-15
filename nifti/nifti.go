@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -155,17 +156,16 @@ type Nifti1Image struct { /*!< Image storage struct **/
 	descrip [80]byte /*!< optional text to describe dataset   */
 	auxFile [24]byte /*!< auxiliary filename                  */
 
-	fname        string                    /*!< header filename (.hdr or .nii)         */
-	iname        string                    /*!< image filename  (.img or .nii)         */
-	inameOffset  int32                     /*!< offset into iname where data starts    */
-	swapsize     int32                     /*!< swap unit in image data (might be 0)   */
-	byteorder    int32                     /*!< byte order on disk (MSB_ or LSB_FIRST) */
-	data         []byte                    /*!< pointer to data: nbyper*nvox bytes     */
-	volumeN      int                       //defined by me, volume vox num
-	byte2floatF  interface{}               //defined by me, byte2floatF
-	byte2floatFc func(interface{}) float32 //defined by me, byte2floatF
-	float2byteF  interface{}
-	header       Nifti1Header //defined by me, it might be a good idea store the img header in the image structure
+	fname       string      /*!< header filename (.hdr or .nii)         */
+	iname       string      /*!< image filename  (.img or .nii)         */
+	inameOffset int32       /*!< offset into iname where data starts    */
+	swapsize    int32       /*!< swap unit in image data (might be 0)   */
+	byteorder   int32       /*!< byte order on disk (MSB_ or LSB_FIRST) */
+	data        []byte      /*!< pointer to data: nbyper*nvox bytes     */
+	volumeN     int         //defined by me, volume vox num
+	byte2floatF interface{} //defined by me, byte2floatF
+	float2byteF interface{}
+	header      Nifti1Header //defined by me, it might be a good idea store the img header in the image structure
 
 	numExt int32 /*!< number of extensions in ext_list       */
 	// nifti1_extension       *ext_list        /*!< array of extension structs (with data) */
@@ -205,46 +205,39 @@ func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 
 	// fmt.Println(header)
 	//setting function to convert float2byte or byte2float
-	if img.nbyper == 1 {
-		img.byte2floatF = func(x []byte) uint8 { return uint8(x[0]) }
-		img.byte2floatFc = func(x interface{}) float32 {
-			return float32(x.(uint8))
+	if img.nbyper == 2 {
+		img.byte2floatF = func(b []byte) float32 {
+			v := binary.LittleEndian.Uint16(b)
+			return float32(v)
 		}
-		img.float2byteF = func(buff []byte, x float32) {
-			buff[0] = uint8(x)
-		}
-	} else if img.nbyper == 2 {
-		img.byte2floatF = binary.LittleEndian.Uint16
-		img.byte2floatFc = func(x interface{}) float32 {
-			return float32(x.(uint16))
-		}
-
 		img.float2byteF = func(buff []byte, x float32) {
 			binary.LittleEndian.PutUint16(buff, uint16(x))
 		}
 
 	} else if img.nbyper == 4 {
-		img.byte2floatF = binary.LittleEndian.Uint32
-		img.byte2floatFc = func(x interface{}) float32 {
-			return float32(x.(uint32))
+		img.byte2floatF = func(b []byte) float32 {
+			v := binary.LittleEndian.Uint32(b)
+			return math.Float32frombits(v)
 		}
 		img.float2byteF = func(buff []byte, x float32) {
-			binary.LittleEndian.PutUint32(buff, uint32(x))
+			v := math.Float32bits(x)
+			binary.LittleEndian.PutUint32(buff, v)
 		}
 
 	} else if img.nbyper == 8 {
-		img.byte2floatF = binary.LittleEndian.Uint64
-		img.byte2floatFc = func(x interface{}) float32 {
-			return float32(x.(uint64))
+		img.byte2floatF = func(b []byte) float32 {
+			v := binary.LittleEndian.Uint64(b)
+			return float32(math.Float64frombits(v))
 		}
 		img.float2byteF = func(buff []byte, x float32) {
-			binary.LittleEndian.PutUint64(buff, uint64(x))
+			v := math.Float64bits(float64(x))
+			binary.LittleEndian.PutUint64(buff, v)
 		}
 	} else {
 		fmt.Println("input nbyper:", img.nbyper)
-		panic("(img *Nifti1Image) byte2float, only support 8 16 32 and 64 bit")
+		panic("(img *Nifti1Image) byte2float, only support 16 32 and 64 bit")
 	}
-
+	fmt.Println(img.nbyper)
 	// set the grid spacings
 	img.dx, img.pixdim[1] = header.Pixdim[1], header.Pixdim[1]
 	img.dy, img.pixdim[2] = header.Pixdim[2], header.Pixdim[2]
@@ -328,9 +321,8 @@ func (img *Nifti1Image) GetDims() [4]int {
 
 //convert byte to float32,init in  LoadImage
 func (img *Nifti1Image) byte2float(data []byte) float32 {
-	v := reflect.ValueOf(img.byte2floatF).Call([]reflect.Value{reflect.ValueOf(data)})
-	num := img.byte2floatFc(v[0].Interface())
-	return num
+	v := reflect.ValueOf(img.byte2floatF).Call([]reflect.Value{reflect.ValueOf(data)})[0].Interface()
+	return v.(float32)
 }
 
 //convert float32 to byte,init in  LoadImage

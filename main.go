@@ -14,7 +14,7 @@ import (
 
 func main() {
 	var x nifti.Nifti1Image
-	x.LoadImage("MNI152_T1_2mm_brain.nii.gz", true)
+	x.LoadImage("MNI152.nii.gz", true)
 	sliceTest := x.GetSlice(24, 0)
 	// fmt.Println(len(sliceTest), len(sliceTest[0])) //start from 0
 	// fmt.Println(x.GetTimeSeries(50, 50, 50))
@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(x.GetAt(50, 50, 50, 0))
-	x.SetAt(50, 50, 50, 0, 1.1)
-	fmt.Println(x.GetAt(50, 50, 50, 0))
+	fmt.Println(x.GetAt(50, 50, 16, 0))
+	x.SetAt(50, 50, 16, 0, 1.1)
+	fmt.Println(x.GetAt(50, 50, 16, 0))
 }
