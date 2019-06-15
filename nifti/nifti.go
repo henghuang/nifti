@@ -205,7 +205,15 @@ func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 
 	// fmt.Println(header)
 	//setting function to convert float2byte or byte2float
-	if img.nbyper == 2 {
+	if img.nbyper == 1 {
+		img.byte2floatF = func(b []byte) float32 {
+			v := uint8(b[0])
+			return float32(v)
+		}
+		img.float2byteF = func(buff []byte, x float32) {
+			buff[0] = uint8(x)
+		}
+	} else if img.nbyper == 2 {
 		img.byte2floatF = func(b []byte) float32 {
 			v := binary.LittleEndian.Uint16(b)
 			return float32(v)
@@ -213,7 +221,6 @@ func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 		img.float2byteF = func(buff []byte, x float32) {
 			binary.LittleEndian.PutUint16(buff, uint16(x))
 		}
-
 	} else if img.nbyper == 4 {
 		img.byte2floatF = func(b []byte) float32 {
 			v := binary.LittleEndian.Uint32(b)
@@ -235,7 +242,7 @@ func (img *Nifti1Image) LoadImage(filepath string, rdata bool) {
 		}
 	} else {
 		fmt.Println("input nbyper:", img.nbyper)
-		panic("(img *Nifti1Image) byte2float, only support 16 32 and 64 bit")
+		panic("(img *Nifti1Image) byte2float, only support 8 16 32 and 64 bit")
 	}
 	fmt.Println(img.nbyper)
 	// set the grid spacings
